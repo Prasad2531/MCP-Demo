@@ -35,3 +35,16 @@ mvn spring-boot:run
 Connects to the server, lists tools, and calls `searchProducts` as a demo.
 
 ## Example Output
+=== Available Tools ===
+
+Server exposes these tools:
+
+- getOrderStatus: Get the status and total amount of an order by order ID
+- searchProducts: Search products by name keyword
+- checkInventory: Check current stock quantity for a product by its ID
+
+=== Calling searchProducts(query=mouse) ===
+- [{"id":1,"name":"Wireless Mouse","category":"Electronics","price":19.99,"stockQuantity":150}]
+
+##Diagram
+<img width="1472" height="1252" alt="image" src="https://github.com/user-attachments/assets/f450073d-01c0-4ec0-bbf0-2bad8a42e909" />
