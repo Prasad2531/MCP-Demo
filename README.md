@@ -71,4 +71,50 @@ brew services start ollama   # restart after testing
 
 - **Phase 1** — in-process function calling, no protocol
 - **Phase 2** — MCP server + bare client, protocol mechanics proven
-- **Phase 3** *(this doc)* — LLM decides tool calls from natural language over MCP
+- **Phase 3** — LLM decides tool calls from natural language over MCP
+## Phase 4 — Multi-Agent Supervisor (LangGraph)
+
+Adds a second, Python-based client (`langgraph-supervisor/`) that connects to the **same unmodified Java MCP server**, proving MCP's cross-language interoperability. Introduces a supervisor pattern: one LLM call classifies user intent, then routes to a specialized sub-agent (order vs. inventory) that has its own scoped system prompt and tool access.
+
+### Why a separate language here
+
+Spring AI doesn't yet have a mature multi-agent orchestration abstraction; **LangGraph** (Python) is currently the most established framework for this pattern. The Java MCP server required zero changes — MCP's protocol-based design means any client, in any language, can connect identically.
+
+### Tech Stack
+
+- Python 3.12, `langgraph`, `langchain`, `langchain-ollama`, `langchain-mcp-adapters`
+- Same local Qwen2.5:7b via Ollama — no new API keys, no new cost
+- Connects to the existing `Mcp-Server` over SSE — no server changes required
+
+### Architecture
+User input
+│
+▼
+Supervisor (LLM call #1) — classifies intent: "order" or "inventory"
+│
+├── order_agent (LLM call #2, scoped tools: getOrderStatus)
+│
+└── inventory_agent (LLM call #2, scoped tools: searchProducts, checkInventory)
+
+
+### Running it
+
+```bash
+cd langgraph-supervisor
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+With `Mcp-Server` and Ollama already running:
+```bash
+python multi-agent.py
+```
+
+### Example
+You: what's the status of order 1  
+[routed to: order_agent]  
+Bot: Order #1 for Alice Smith is SHIPPED, total $99.98  
+
+You: search for mouse  
+[routed to: inventory_agent]  
+Bot: Found Wireless Mouse — Electronics category, $19.99, 150 units in stock  
