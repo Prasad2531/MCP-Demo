@@ -48,3 +48,27 @@ Server exposes these tools:
 
 ##Diagram
 <img width="1472" height="1252" alt="image" src="https://github.com/user-attachments/assets/f450073d-01c0-4ec0-bbf0-2bad8a42e909" />
+
+## Verifying the LLM is actually driving tool selection
+
+**Option A — debug logging.** Add to `application.properties`:
+```properties
+logging.level.org.springframework.ai=DEBUG
+logging.level.org.springframework.ai.mcp=DEBUG
+```
+Shows the exact prompt sent to Qwen, the tool it chose, its arguments, the tool's raw response, and the final generated answer.
+
+**Option B — kill the LLM dependency.**
+```bash
+brew services stop ollama
+```
+Send a message — expect a connection-refused error, proving there's no hardcoded fallback logic; the app genuinely needs the local LLM to respond.
+```bash
+brew services start ollama   # restart after testing
+```
+
+## Roadmap Context
+
+- **Phase 1** — in-process function calling, no protocol
+- **Phase 2** — MCP server + bare client, protocol mechanics proven
+- **Phase 3** *(this doc)* — LLM decides tool calls from natural language over MCP
