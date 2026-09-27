@@ -87,14 +87,14 @@ Spring AI doesn't yet have a mature multi-agent orchestration abstraction; **Lan
 - Connects to the existing `Mcp-Server` over SSE — no server changes required
 
 ### Architecture
-User input
-│
-▼
-Supervisor (LLM call #1) — classifies intent: "order" or "inventory"
-│
-├── order_agent (LLM call #2, scoped tools: getOrderStatus)
-│
-└── inventory_agent (LLM call #2, scoped tools: searchProducts, checkInventory)
+User input  
+│  
+▼  
+Supervisor (LLM call #1) — classifies intent: "order" or "inventory"  
+│  
+├── order_agent (LLM call #2, scoped tools: getOrderStatus)  
+│  
+└── inventory_agent (LLM call #2, scoped tools: searchProducts, checkInventory)  
 
 
 ### Running it
