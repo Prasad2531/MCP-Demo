@@ -118,3 +118,66 @@ Bot: Order #1 for Alice Smith is SHIPPED, total $99.98
 You: search for mouse  
 [routed to: inventory_agent]  
 Bot: Found Wireless Mouse — Electronics category, $19.99, 150 units in stock  
+
+## Phase 5: A2A Agent Services
+
+Phase 4's sub-agents ran in-process, so the supervisor called them as Python functions. In Phase 5 each agent becomes an independent network service that publishes an **Agent Card**, and the supervisor discovers and delegates to them over **A2A (Agent2Agent)**. The Java MCP server is unchanged: MCP handles agent-to-tool calls, A2A handles agent-to-agent calls.
+
+### Architecture
+supervisor.py  
+│ 1. classify intent (LLM call)  
+│ 2. A2A JSON-RPC over HTTP  
+├──▶ order_agent :9101 ──MCP──▶ Java Mcp-Server ──▶ H2  
+│ tools: getOrderStatus  
+└──▶ inventory_agent :9102 ──MCP──▶ Java Mcp-Server ──▶ H2  
+tools: searchProducts, checkInventory  
+
+### What each piece does
+
+| Component | Role |
+|---|---|
+| `common.py` | Builds a LangChain agent from a subset of MCP tools; `LangChainAgentExecutor` bridges A2A requests to that agent |
+| `order_agent.py` | A2A server on port 9101, exposes the order-status skill |
+| `inventory_agent.py` | A2A server on port 9102, exposes the product search and stock skill |
+| `supervisor.py` | Classifies the request, resolves the target agent, sends the task over A2A |
+
+Each agent publishes its capabilities at `/.well-known/agent-card.json`:
+```bash
+curl http://localhost:9101/.well-known/agent-card.json
+curl http://localhost:9102/.well-known/agent-card.json
+```
+
+### A2A task lifecycle
+
+The executor follows the protocol's long-running task pattern:
+1. Enqueue a `Task` (state `SUBMITTED`)
+2. Publish `TASK_STATE_WORKING`
+3. Run the LangChain agent (which calls MCP tools)
+4. Publish `TASK_STATE_COMPLETED` with the answer, or `TASK_STATE_FAILED` on error
+
+The server rejects status updates sent before the initial `Task` is enqueued, so step 1 is required.
+
+### Running it
+
+Prerequisites: Ollama running Qwen2.5, and the Java `Mcp-Server` on port 8080.
+
+```bash
+cd a2a-agents
+python3.12 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Start each process in its own terminal (venv active in each):
+```bash
+python order_agent.py       # terminal 1
+python inventory_agent.py   # terminal 2
+python supervisor.py        # terminal 3
+```
+
+Example:  
+You: what's the status of order 1  
+[routed to order_agent via A2A]  
+
+You: how much stock of mouse do we have  
+[routed to inventory_agent via A2A]  
