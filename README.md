@@ -176,8 +176,37 @@ python supervisor.py        # terminal 3
 ```
 
 Example:  
+((venv) ) prasad@Mac a2a-agents % python supervisor.py
 You: what's the status of order 1  
 [routed to order_agent via A2A]  
-
+[event] StreamResponse
+Bot: task {
+id: "9407b35c-b9ea-4a9c-9f47-674c40638234"  
+context_id: "69dd70a2-a2e4-439c-9b96-3809919f47e0"  
+status {
+state: TASK_STATE_COMPLETED
+message {
+message_id: "9407b35c-b9ea-4a9c-9f47-674c40638234-msg"
+role: ROLE_AGENT
+parts {
+text: "The status of order #1 is SHIPPED and the total amount is $99.98."
+}
+}
+}
+}
 You: how much stock of mouse do we have  
-[routed to inventory_agent via A2A]
+[routed to inventory_agent via A2A]  
+[event] StreamResponse
+Bot: task {
+id: "b7385951-29e2-4aad-8e03-86cb1f9fac95"
+context_id: "588ea691-f9e0-47dc-bebd-543757d0231a"
+status {
+state: TASK_STATE_COMPLETED
+message {
+message_id: "b7385951-29e2-4aad-8e03-86cb1f9fac95-msg"
+role: ROLE_AGENT
+parts {
+text: "We have 150 units of the Wireless Mouse in stock."
+}
+}
+}
