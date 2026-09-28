@@ -180,4 +180,4 @@ You: what's the status of order 1
 [routed to order_agent via A2A]  
 
 You: how much stock of mouse do we have  
-[routed to inventory_agent via A2A]  
+[routed to inventory_agent via A2A]
