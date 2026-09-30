@@ -259,7 +259,8 @@ Breaking down a ~2 second request:
 | Routing (regex) | 0.17 ms | ~0% |
 | MCP tool call (DB round-trip) | 26 ms | ~1.3% |
 | Agent's LLM reasoning (2 passes) | ~1982 ms | ~97.9% |
-| A2A network overhead | ~18 ms | ~0.9% |
+| A2A network overhead | ~18 ms | ~0.9% |  
+
 The database and network layers are fast and not the bottleneck. 
 Nearly all latency is the local LLM's own inference time — deciding to call a tool, then composing the final answer. 
 No amount of MCP or A2A optimization would meaningfully improve response time here; only a faster/smaller model, fewer LLM calls per request, or better hardware utilization would.
