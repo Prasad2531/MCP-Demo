@@ -31,12 +31,14 @@ card = a2a_pb2.AgentCard(
 
 
 async def make_app():
+    trace_id_holder = {}
     agent = await build_agent(
         ["searchProducts", "checkInventory"],
         "You handle product search and stock questions only. "
-        "Use searchProducts and checkInventory.")
+        "Use searchProducts and checkInventory.",
+        trace_id_holder)
     handler = DefaultRequestHandler(
-        agent_executor=LangChainAgentExecutor(agent),
+        agent_executor=LangChainAgentExecutor(agent,trace_id_holder),
         task_store=InMemoryTaskStore(),
         agent_card=card)
     routes = create_jsonrpc_routes(handler, rpc_url="/rpc") + create_agent_card_routes(card)

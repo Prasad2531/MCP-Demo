@@ -33,7 +33,19 @@ cd Mcp-Client
 mvn spring-boot:run
 ```
 Connects to the server, lists tools, and calls `searchProducts` as a demo.
-
+Terminal A: brew services start ollama  
+Terminal B:  
+cd MCPServer-ClientDemo/a2a-agents  
+source venv/bin/activate  
+python order_agent.py  
+Terminal C:  
+cd ~/Documents/Projects/MCPServer-ClientDemo/a2a-agents
+source venv/bin/activate
+python inventory_agent.py
+Terminal D:
+cd ~/Documents/Projects/MCPServer-ClientDemo/a2a-agents
+source venv/bin/activate
+python supervisor.py
 ## Example Output
 === Available Tools ===
 
@@ -210,3 +222,44 @@ text: "We have 150 units of the Wireless Mouse in stock."
 }
 }
 }
+## Phase 6: Deterministic Routing and Structured Tracing
+
+Two additions aimed at production reliability rather than new features: a deterministic pre-check that skips the LLM for obvious routing decisions, and structured, trace-correlated logging across the whole request path.
+
+### 6a — Deterministic router
+
+The supervisor's routing was 100% LLM-based, even for unambiguous input like "status of order 1." A regex pre-check now catches obvious cases before spending a model call:
+
+```python
+def route(text: str) -> str:
+    if re.search(r'\border\s*#?\s*\d+\b', text, re.IGNORECASE) or \
+       re.search(r'\b(status|shipped|delivered|cancelled|refund)\b', text, re.IGNORECASE):
+        return "order"
+    if re.search(r'\b(stock|inventory|how many|available|in stock)\b', text, re.IGNORECASE):
+        return "inventory"
+    return route_with_llm(text)  # only ambiguous phrasing reaches the model
+```
+
+Traced latency confirms the router itself costs well under 1ms, against ~2 seconds for the rest of the request — a real, measured savings for every request it catches, not just an assumption.
+
+### 6b — Structured tracing
+
+Every hop of a request now logs a JSON line to `trace.log`, correlated by a shared `trace_id` generated once per user request and threaded through the A2A message's `metadata` field:
+supervisor.route → routing decision + latency
+supervisor.a2a_call → full round trip to the chosen agent
+agent.tool_call → the agent's LangChain loop (LLM + tool call)
+mcp.tool_call → the underlying MCP/database round-trip
+
+### What the trace revealed
+
+Breaking down a ~2 second request:
+
+| Span | Latency | Share |
+|---|---|---|
+| Routing (regex) | 0.17 ms | ~0% |
+| MCP tool call (DB round-trip) | 26 ms | ~1.3% |
+| Agent's LLM reasoning (2 passes) | ~1982 ms | ~97.9% |
+| A2A network overhead | ~18 ms | ~0.9% |
+The database and network layers are fast and not the bottleneck. 
+Nearly all latency is the local LLM's own inference time — deciding to call a tool, then composing the final answer. 
+No amount of MCP or A2A optimization would meaningfully improve response time here; only a faster/smaller model, fewer LLM calls per request, or better hardware utilization would.
