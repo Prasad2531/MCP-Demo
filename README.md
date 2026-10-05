@@ -264,3 +264,63 @@ Breaking down a ~2 second request:
 The database and network layers are fast and not the bottleneck. 
 Nearly all latency is the local LLM's own inference time — deciding to call a tool, then composing the final answer. 
 No amount of MCP or A2A optimization would meaningfully improve response time here; only a faster/smaller model, fewer LLM calls per request, or better hardware utilization would.
+
+## Phase 6 (continued): Structured Failure Semantics
+
+Failures were previously logged as raw exception strings — useful for a human reading one log line, but not groupable or queryable across many requests. Failures are now classified into a fixed set of structured reasons, logged alongside the raw error, so failure types can be counted, filtered, and eventually used to tune prompts or add targeted retry/fallback logic.
+
+### Failure taxonomy
+
+```python
+class FailureReason(str, Enum):
+    MCP_TIMEOUT = "mcp_timeout"
+    MCP_TOOL_ERROR = "mcp_tool_error"
+    A2A_TASK_FAILURE = "a2a_task_failure"
+    AGENT_CARD_STALE = "agent_card_stale"
+    LLM_MALFORMED_OUTPUT = "llm_malformed_output"
+    UNKNOWN = "unknown"
+```
+
+`classify_exception()` inspects the raised exception and returns one of these. Every failure logged by the agent (`agent.tool_call_error`) and the MCP tool wrapper (`mcp.tool_call_error`) now carries a `reason` field, not just a free-text `error` string.
+
+### The ExceptionGroup gotcha
+
+The MCP Python SDK's SSE client uses `anyio.create_task_group()` internally. When the underlying connection fails, `anyio` wraps the real cause in an `ExceptionGroup`, whose own `str()` is a generic `"unhandled errors in a TaskGroup (1 sub-exception)"` — the actual cause (e.g. `httpcore.ConnectError`) lives inside `.exceptions`, not in the outer message. A naive `str(exc)` check missed this entirely and classified every MCP outage as `unknown`. `classify_exception()` unwraps `ExceptionGroup`s before inspecting message text:
+
+```python
+exceptions_to_check = [exc]
+if hasattr(exc, "exceptions"):
+    exceptions_to_check = list(exc.exceptions)
+```
+
+### Verified against a real outage
+
+Stopping the Java `Mcp-Server` mid-session and sending requests through the live stack produced consistent, correctly classified results across repeated up/down cycles:
+
+```json
+{"trace_id": "f9e19df4", "span": "mcp.tool_call", "latency_ms": 110.0}
+{"trace_id": "f9e19df4", "span": "agent.tool_call", "output": "Order #1 for Alice Smith is SHIPPED, total $99.98.", "latency_ms": 4771.5}
+```
+```json
+{"trace_id": "cee78616", "span": "mcp.tool_call_error", "error": "unhandled errors in a TaskGroup (1 sub-exception)", "reason": "mcp_tool_error", "latency_ms": 0}
+{"trace_id": "cee78616", "span": "agent.tool_call_error", "reason": "mcp_tool_error", "latency_ms": 920.0}
+```
+
+The failure-facing message shown to the end user (`Bot: ...`) still surfaces the generic `ExceptionGroup` text, since that path wasn't changed — only the structured log gained the classified reason. Surfacing a friendlier, classified message to the user is a natural follow-up, not yet done.
+
+### A real debugging note from building this
+
+Mid-testing, failures intermittently showed `"reason": "unknown"` with the error `"name 'FailureReason' is not defined"`, even though the code was correct. The cause was a **stale background process**: an earlier, pre-fix run of `order_agent.py` was still alive and listening on the same port, so some requests landed on the old process and some on the new one. `lsof -i :9101` showed two PIDs; killing both and restarting cleanly resolved it. Same root cause as an earlier Phase 5 issue — editing a shared module (`common.py`/`failures.py`) only takes effect in processes started *after* the edit, and Python doesn't warn you if an old process is still running alongside a new one.
+
+### Circuit breaker
+
+Without this, every request made a fresh, full-length attempt to reach MCP even when it was already known to be down — each failed attempt still cost close to a second (the `ExceptionGroup`'s connection-timeout behavior) before failing. A simple circuit breaker now tracks consecutive MCP failures per agent process and, once a threshold is hit, short-circuits further attempts for a cooldown window instead of repeating a doomed connection attempt:
+
+The tool wrapper checks the circuit before attempting a call; if open, it fails instantly (logged as a `mcp.tool_call_error` with a dedicated reason) rather than waiting out a real connection attempt. A successful call resets the failure count, so the breaker re-opens automatically once MCP recovers rather than needing a manual reset.
+
+This is scoped intentionally narrow: it protects *future* requests from repeating a known-bad attempt, not the request that originally discovered the failure — there's no way to know MCP is down before trying it at least once.
+### Roadmap update
+
+- **6a/6b/6c** (this + previous sections): deterministic routing, structured tracing, failure semantics — all done and verified against a real induced failure
+- **6d**: a minimal eval harness (10 scenarios, routing-only) now exists; expanding it to check tool-call accuracy and args, not just routing, is the natural next step
+- **Next**: circuit-breaker behavior (stop retrying a known-down MCP server on every request) was discussed but not yet implemented

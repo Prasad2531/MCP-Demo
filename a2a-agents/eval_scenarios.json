@@ -1,0 +1,12 @@
+[
+  {"id": "order_status_explicit", "input": "what's the status of order 1", "expected_target": "order", "expected_tool": "getOrderStatus", "expected_args": {"orderId": 1}},
+  {"id": "order_status_phrased", "input": "has order 2 shipped yet", "expected_target": "order", "expected_tool": "getOrderStatus", "expected_args": {"orderId": 2}},
+  {"id": "order_refund", "input": "I want a refund for order 1", "expected_target": "order", "expected_tool": "getOrderStatus", "expected_args": {"orderId": 1}},
+  {"id": "inventory_stock_check", "input": "how much stock of mouse do we have", "expected_target": "inventory", "expected_tool": "checkInventory", "expected_args": {}},
+  {"id": "inventory_search", "input": "do you have a wireless mouse", "expected_target": "inventory", "expected_tool": "searchProducts", "expected_args": {"query": "mouse"}},
+  {"id": "inventory_availability", "input": "is the mechanical keyboard available", "expected_target": "inventory", "expected_tool": "searchProducts", "expected_args": {"query": "keyboard"}},
+  {"id": "order_bad_id", "input": "status of order 999", "expected_target": "order", "expected_tool": "getOrderStatus", "expected_args": {"orderId": 999}},
+  {"id": "inventory_bad_product", "input": "do you have a flying carpet in stock", "expected_target": "inventory", "expected_tool": "searchProducts", "expected_args": {"query": "flying carpet"}},
+  {"id": "order_ambiguous_phrasing", "input": "I'm not sure if my package shipped", "expected_target": "order", "expected_tool": null, "expected_args": {}},
+  {"id": "inventory_ambiguous_phrasing", "input": "I'm not sure if that item is still around", "expected_target": "inventory", "expected_tool": null, "expected_args": {}}
+]

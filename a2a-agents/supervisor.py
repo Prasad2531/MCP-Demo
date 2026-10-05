@@ -63,4 +63,5 @@ async def main():
 
         print("Bot:", result, "\n")
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
