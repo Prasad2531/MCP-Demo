@@ -319,8 +319,3 @@ Without this, every request made a fresh, full-length attempt to reach MCP even 
 The tool wrapper checks the circuit before attempting a call; if open, it fails instantly (logged as a `mcp.tool_call_error` with a dedicated reason) rather than waiting out a real connection attempt. A successful call resets the failure count, so the breaker re-opens automatically once MCP recovers rather than needing a manual reset.
 
 This is scoped intentionally narrow: it protects *future* requests from repeating a known-bad attempt, not the request that originally discovered the failure — there's no way to know MCP is down before trying it at least once.
-### Roadmap update
-
-- **6a/6b/6c** (this + previous sections): deterministic routing, structured tracing, failure semantics — all done and verified against a real induced failure
-- **6d**: a minimal eval harness (10 scenarios, routing-only) now exists; expanding it to check tool-call accuracy and args, not just routing, is the natural next step
-- **Next**: circuit-breaker behavior (stop retrying a known-down MCP server on every request) was discussed but not yet implemented
