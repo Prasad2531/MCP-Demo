@@ -34,7 +34,10 @@ async def make_app():
     trace_id_holder = {}
     agent = await build_agent(
            ["getOrderStatus"],
-           "You handle order status questions only. Use getOrderStatus.",
+           "You handle order status questions. When the user mentions an order number "
+            "(e.g. 'order 1', '#1', 'order id 1'), immediately call getOrderStatus with "
+            "that order ID — do not ask the user to repeat information they already gave you. "
+            "Only ask for clarification if no order number was mentioned at all.",
            trace_id_holder)
     handler = DefaultRequestHandler(
            agent_executor=LangChainAgentExecutor(agent, trace_id_holder),

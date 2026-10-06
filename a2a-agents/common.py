@@ -41,12 +41,6 @@ def wrap_tool_with_tracing(tool, trace_id_holder: dict):
     original_coroutine = tool.coroutine
 
     async def traced_coroutine(*args, **kwargs):
-        if _mcp_circuit_is_open():
-                trace_id = trace_id_holder.get("current", "unknown")
-                log_event(trace_id, "mcp.tool_call_error", tool=tool.name, args=kwargs,
-                          error="circuit open, skipping call", reason=FailureReason.MCP_TOOL_ERROR.value, latency_ms=0)
-                raise RuntimeError("MCP circuit breaker open — server recently failed")
-
         t0 = time.time()
         trace_id = trace_id_holder.get("current", "unknown")
         try:

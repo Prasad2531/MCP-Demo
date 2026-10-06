@@ -34,8 +34,10 @@ async def make_app():
     trace_id_holder = {}
     agent = await build_agent(
         ["searchProducts", "checkInventory"],
-        "You handle product search and stock questions only. "
-        "Use searchProducts and checkInventory.",
+        "You handle product search and stock questions. When the user names a product "
+        "(e.g. 'mouse', 'keyboard', 'wireless mouse'), immediately call searchProducts "
+        "with that product name as the query — do not ask for a product ID, the user "
+        "won't have one. Only ask for clarification if no product name was mentioned at all.",
         trace_id_holder)
     handler = DefaultRequestHandler(
         agent_executor=LangChainAgentExecutor(agent,trace_id_holder),

@@ -319,3 +319,47 @@ Without this, every request made a fresh, full-length attempt to reach MCP even 
 The tool wrapper checks the circuit before attempting a call; if open, it fails instantly (logged as a `mcp.tool_call_error` with a dedicated reason) rather than waiting out a real connection attempt. A successful call resets the failure count, so the breaker re-opens automatically once MCP recovers rather than needing a manual reset.
 
 This is scoped intentionally narrow: it protects *future* requests from repeating a known-bad attempt, not the request that originally discovered the failure — there's no way to know MCP is down before trying it at least once.
+### Circuit breaker
+
+Verified live: with `Mcp-Server` down, the first two requests fail with a real connection error and trip the breaker; request 3 onward short-circuits instantly (`latency_ms: 0`) instead of repeating a doomed attempt.
+
+The check was later moved to the top of `execute()`, before the LLM call — the original version only skipped the MCP call itself, leaving the ~800ms LLM reasoning cost untouched. Now a known-down MCP server skips the LLM entirely, not just the tool call. The now-redundant lower-level check was removed.
+
+### Happy path re-confirmed
+
+After adding the circuit breaker, the eval harness was re-run with MCP healthy specifically to catch any regression from the failure-handling changes. All 10 scenarios still passed — the new logic didn't break normal operation.
+
+### Tool-use bug found and fixed
+
+Reading the eval answers (not just routing pass/fail) surfaced a real issue: agents asked for information already given instead of calling the obvious tool — e.g. asking for an order ID right after being given one. Caused by underspecified system prompts; rewritten to instruct the agent to act on information already present rather than ask again. Re-tested: all three affected scenarios now call the tool directly; two genuinely ambiguous scenarios still correctly ask for clarification.
+
+### Eval harness: tool + argument checks
+
+The harness previously only checked routing, which is how the bug above went undetected. It now reads `trace.log` and asserts the actual MCP tool called and its arguments (string args matched by substring, to tolerate reasonable phrasing differences). Result: 10/10 on routing, tool selection, and arguments.
+
+### Fan-out / join
+
+Compound requests needing both agents (e.g. "check order 1 and inventory for mouse") previously had no path that handled both halves. `route()` now detects this and returns `"both"`; `ask_both()` calls both agents concurrently via `asyncio.gather` and merges results in code, no second LLM call. Verified via overlapping timestamps in both agents' trace spans, confirming real parallelism.
+
+### Roadmap update
+
+- **6a–6c + circuit breaker + fan-out/join**: done, including LLM-cost optimization and a confirmed happy-path regression check
+- **6d (eval harness)**: now checks routing, tool selection, and arguments — 10/10, and caught a real bug
+- **Next**: UCP-style cart/checkout tools, or publishing the Medium post
+
+### Fan-out/join: issues found and fixed under real concurrency
+
+Testing the fan-out pattern surfaced three real, non-obvious problems that single-agent testing never exposed:
+
+1. **Both agents received the full compound question**, each attempting to answer parts outside its own scope (e.g. the inventory agent tried to address an order status question with no `getOrderStatus` tool available). Fixed by splitting the request into order-relevant and inventory-relevant slices before fan-out, so each agent only ever sees its own part.
+
+2. **Concurrent requests to the same local Qwen2.5 instance roughly tripled per-request latency** (from ~2s to 5-7s each), even though the supervisor correctly dispatched both calls in parallel via `asyncio.gather`. This caused the default A2A client timeout to trip. Root cause: a single local Ollama instance doesn't truly serve two generation requests in parallel — "concurrent" at the network layer doesn't mean concurrent at the inference layer. Fixed by passing a longer `httpx` timeout via `ClientConfig`, not by changing the fan-out logic itself — the architecture was correct; the shared local LLM was the real bottleneck.
+
+3. **Tool-call hallucination**: even after the request was split, one phrasing caused the inventory agent to call `checkInventory(productId=123)` — inventing a nonexistent product ID — instead of `searchProducts`, which needs no ID. The system prompt named both tools but didn't say which to prefer by default. Fixed by making the prompt explicit that name-based questions should always use `searchProducts`, and explicitly forbidding guessing an ID.
+
+All three are genuine findings from testing real concurrent load, not bugs visible in sequential single-agent testing — a direct demonstration of why evaluating only the happy path, one request at a time, misses real production failure modes.
+
+### Roadmap update
+
+- **Fan-out/join**: implemented, debugged under real concurrency, and verified — split-before-dispatch, parallel execution, correct merged results
+- **Next**: UCP-style cart/checkout tools, or publishing the Medium post
