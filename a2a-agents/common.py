@@ -84,35 +84,44 @@ class LangChainAgentExecutor(AgentExecutor):
             task_id=ctx.task_id, context_id=ctx.context_id, status=status))
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
-            user_text = context.get_user_input()
-            try:
-                trace_id = context.message.metadata["trace_id"]
-            except (KeyError, TypeError):
-                trace_id = "unknown"
+        user_text = context.get_user_input()
+        try:
+            trace_id = context.message.metadata["trace_id"]
+        except (KeyError, TypeError):
+            trace_id = "unknown"
 
-            self.trace_id_holder["current"] = trace_id  # <-- tools read this when invoked
+        self.trace_id_holder["current"] = trace_id
 
-            if context.current_task is None:
-                await event_queue.enqueue_event(a2a_pb2.Task(
-                    id=context.task_id,
-                    context_id=context.context_id,
-                    status=a2a_pb2.TaskStatus(state=a2a_pb2.TASK_STATE_SUBMITTED),
-                ))
+        if context.current_task is None:
+            await event_queue.enqueue_event(a2a_pb2.Task(
+                id=context.task_id,
+                context_id=context.context_id,
+                status=a2a_pb2.TaskStatus(state=a2a_pb2.TASK_STATE_SUBMITTED),
+            ))
 
-            await self._status(context, event_queue, a2a_pb2.TASK_STATE_WORKING)
+        await self._status(context, event_queue, a2a_pb2.TASK_STATE_WORKING)
 
-            t0 = time.time()
-            try:
-                result = await self.agent.ainvoke({"messages": [{"role": "user", "content": user_text}]})
-                answer = result["messages"][-1].content
-                latency_ms = (time.time() - t0) * 1000
-                log_event(trace_id, "agent.tool_call", input=user_text, output=answer, latency_ms=latency_ms)
-                await self._status(context, event_queue, a2a_pb2.TASK_STATE_COMPLETED, answer)
-            except Exception as e:
-                latency_ms = (time.time() - t0) * 1000
-                reason = classify_exception(e)
-                log_event(trace_id, "agent.tool_call_error",input=user_text, error=str(e), reason=reason.value, latency_ms=latency_ms)
-                await self._status(context, event_queue, a2a_pb2.TASK_STATE_FAILED, str(e))
+        # Check the circuit BEFORE spending any LLM reasoning time
+        if _mcp_circuit_is_open():
+            log_event(trace_id, "agent.tool_call_error", input=user_text,
+                      error="MCP circuit breaker open — skipping LLM call entirely",
+                      reason=FailureReason.MCP_TOOL_ERROR.value, latency_ms=0)
+            await self._status(context, event_queue, a2a_pb2.TASK_STATE_FAILED,
+                               "The order/inventory service is currently unavailable. Please try again shortly.")
+            return
+
+        t0 = time.time()
+        try:
+            result = await self.agent.ainvoke({"messages": [{"role": "user", "content": user_text}]})
+            answer = result["messages"][-1].content
+            latency_ms = (time.time() - t0) * 1000
+            log_event(trace_id, "agent.tool_call", input=user_text, output=answer, latency_ms=latency_ms)
+            await self._status(context, event_queue, a2a_pb2.TASK_STATE_COMPLETED, answer)
+        except Exception as e:
+            latency_ms = (time.time() - t0) * 1000
+            reason = classify_exception(e)
+            log_event(trace_id, "agent.tool_call_error", input=user_text, error=str(e), reason=reason.value, latency_ms=latency_ms)
+            await self._status(context, event_queue, a2a_pb2.TASK_STATE_FAILED, str(e))
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         await self._status(context, event_queue, a2a_pb2.TASK_STATE_CANCELED)
